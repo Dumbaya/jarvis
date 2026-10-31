@@ -12,7 +12,7 @@ COPY backend/ ./
 RUN composer dump-autoload --no-dev --optimize --classmap-authoritative --no-scripts
 
 # ── 2단계: 실행 이미지 ───────────────────────────────────────────────
-FROM php:8.4-fpm-alpine
+FROM php:8.5-fpm-alpine
 
 RUN apk add --no-cache libpq-dev icu-dev libzip-dev oniguruma-dev \
     && docker-php-ext-install pdo_pgsql pgsql intl zip mbstring opcache pcntl bcmath
