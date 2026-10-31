@@ -125,7 +125,14 @@
   - **실측 함정**: LLM이 질문을 "서버", "웹서버"처럼 단어로 줄여 검색하면 유사도가 0.586~0.598로 임계값(0.60)에 걸려 정답 메모를 놓쳤다(질문 문장 전체는 0.747). 임계값을 내리면 오탐과 구분이 안 되므로, 도구 설명과 시스템 프롬프트에 "문장 그대로 넣고, 결과가 비면 줄이지 말고 원문으로 재검색"을 명시했다(회귀 테스트 있음). 수정 후 실제 Gemini 2/2회 정답(출처 메모 제목을 밝히며 답변).
   - 테스트용 가짜 임베더: 주제 단어로 방향이 정해지는 벡터를 쓴다. 모든 문장에 같은 기준 성분을 넣으면 "주제 없는 두 문장의 유사도가 1.0"이 되는 거짓 결과가 나오므로 문장마다 다른 칸에 작은 값을 둔다.
   - 변이 검사로 확인: 옵트인 우회, 저장 시 전송, 옛 벡터 잔존, 임계값 제거, 사용자 필터 제거를 각각 끄면 테스트가 실패한다(마지막은 저수준 테스트만 실패하는데 검색 단계에 사용자 범위 재조회라는 두 번째 방어선이 있어서다).
-- [ ] 다음: 배포와 CI, 문서화(배포 시 확인: 8081 비공개, 풀 크기와 메모리, 한도 소진 시나리오, pgvector 확장 권한) → 자비스 v2(서비스 조합) → 의미 검색/RAG → 배포와 CI, 문서화
+- [x] **검색 정밀도**: 임계값 0.60 + 1위 대비 상대 마진 `EMBEDDING_RELATIVE_MARGIN`(기본 0.10). 정답이 아닌 결과가 질문당 0.76개 → 0.24개.
+- [x] **운영 구성과 CI/CD**(로컬에서 실제 기동해 검증, 실서버 배포는 미검증): `docker-compose.prod.yml`, `docker/php/Dockerfile.prod`(멀티스테이지, opcache validate_timestamps=0, config/route/event 캐시), PHP-FPM ondemand 풀(www 6, internal 4), nginx TLS/HSTS/limit_req, `scripts/{backup,restore,smoke,deploy}.sh`, `.github/workflows/{ci,deploy}.yml`(CD는 수동/태그만), `frontend/vercel.json`, `.env.prod.example`. `.env.prod`, `docker/certs-dev/`는 gitignore.
+  - 헬스체크는 `pgrep`이 아니라 9000/9001 `fsockopen`(pgrep은 항상 실패했다). `.gitattributes`는 `*.sh`와 docker 설정, yml을 LF로 고정.
+  - 실제로 돌려서 찾은 버그: `Accept` 헤더 없는 인증 실패가 500(`redirectGuestsTo(fn () => null)`), Docker/CI 프런트 빌드 ECONNREFUSED(`vite.config.ts` ipv4first), 채팅 `**` 노출(`jarvis.tsx`의 `InlineText`, HTML 미사용).
+  - 실제 브라우저(puppeteer-core + Chrome)로 화면 흐름 검증, 스크린샷 `docs/screenshots/`(더미 데이터).
+- [x] **문서화**: `README.md`, `docs/{ARCHITECTURE,DECISIONS,RAG_EVAL,TESTING,OPERATIONS}.md`. 새 결정/측정이 생기면 DECISIONS와 해당 문서에 같이 적는다.
+- [ ] **미검증(문서에도 명시)**: 실제 AWS/Vercel 배포, Let's Encrypt 발급, GHCR pull, 실제 GitHub Actions 실행, Groq/OpenRouter/Ollama 실호출. 테스트 212개(Postgres)/208+4 skip(SQLite).
+- [ ] 다음: 푸시(사용자가 GitHub 인증 후), 실서버 배포 후 OPERATIONS.md 보정, Groq 키로 체인 검증, 실데이터로 RAG 임계값 재측정
 
 ## 프런트 실행
 - `cd frontend && npm run dev` → http://localhost:5173 (백엔드 Docker가 떠 있어야 한다). 개발 중 `/api`는 Vite 프록시가 `localhost:8080`으로 넘긴다.
