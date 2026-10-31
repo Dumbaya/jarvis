@@ -5,6 +5,7 @@ use App\Http\Controllers\BriefingController;
 use App\Http\Controllers\HabitController;
 use App\Http\Controllers\JarvisController;
 use App\Http\Controllers\LedgerController;
+use App\Http\Controllers\LedgerRuleController;
 use App\Http\Controllers\MemoController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\ServiceRegistryController;
@@ -55,6 +56,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('entries/{id}', [LedgerController::class, 'destroy']);
         Route::get('summary', [LedgerController::class, 'summary']);
         Route::get('categories', [LedgerController::class, 'categories']);
+
+        // 고정 거래(반복 규칙). 날짜가 되면 일반 거래로 자동 반영된다.
+        Route::get('rules', [LedgerRuleController::class, 'index']);
+        Route::post('rules', [LedgerRuleController::class, 'store'])->middleware('throttle:30,1');
+        Route::put('rules/{id}', [LedgerRuleController::class, 'update']);
+        Route::delete('rules/{id}', [LedgerRuleController::class, 'destroy']);
     });
 
     // 세컨드 브레인

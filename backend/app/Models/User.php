@@ -32,6 +32,11 @@ class User extends Authenticatable
         return $this->hasMany(Tag::class);
     }
 
+    public function ledgerRules(): HasMany
+    {
+        return $this->hasMany(LedgerRule::class);
+    }
+
     public function ledgerEntries(): HasMany
     {
         return $this->hasMany(LedgerEntry::class);

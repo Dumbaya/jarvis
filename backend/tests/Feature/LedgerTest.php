@@ -246,14 +246,17 @@ class LedgerTest extends TestCase
 
         $tools = collect($this->withToken($token)->getJson('/api/services')->assertOk()->json('0.tools'))->keyBy('name');
 
-        // 개별 거래를 돌려주는 도구가 없어야 한다. 읽기 도구는 집계 하나뿐이다.
-        $this->assertEqualsCanonicalizing(['ledger.summary', 'ledger.add_entry'], $tools->keys()->all());
+        // 개별 거래나 고정 거래 목록을 돌려주는 도구가 없어야 한다. 읽기 도구는 집계 하나뿐이다.
+        $this->assertEqualsCanonicalizing(['ledger.summary', 'ledger.add_entry', 'ledger.add_recurring'], $tools->keys()->all());
         $reads = $tools->where('access', 'read');
         $this->assertCount(1, $reads);
         $this->assertSame('ledger.summary', $reads->keys()->first());
 
-        $this->assertTrue($tools['ledger.add_entry']['requires_confirmation']);
-        $this->assertSame('write', $tools['ledger.add_entry']['access']);
+        // 데이터를 바꾸는 도구는 모두 사용자 확인을 거친다.
+        foreach (['ledger.add_entry', 'ledger.add_recurring'] as $write) {
+            $this->assertTrue($tools[$write]['requires_confirmation'], $write);
+            $this->assertSame('write', $tools[$write]['access'], $write);
+        }
     }
 
     public function test_jarvis_summary_flow_sends_only_aggregates_to_the_llm(): void

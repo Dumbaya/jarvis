@@ -123,6 +123,23 @@ export type LedgerEntry = {
   category: string;
   memo: string | null;
   occurred_on: string;
+  /** 고정 거래 규칙이 만든 거래인지 */
+  recurring: boolean;
+};
+export type LedgerRule = {
+  id: number;
+  type: "income" | "expense";
+  amount: number;
+  category: string;
+  memo: string | null;
+  frequency: "monthly" | "weekly" | "yearly";
+  day_of_month: number | null;
+  weekday: number | null;
+  month_of_year: number | null;
+  start_on: string;
+  end_on: string | null;
+  active: boolean;
+  next_on: string | null;
 };
 export type CategoryTotal = { category: string; total: number; count: number; percent: number };
 export type LedgerSummary = {
@@ -133,6 +150,8 @@ export type LedgerSummary = {
   entry_count: number;
   expense_by_category: CategoryTotal[];
   income_by_category: CategoryTotal[];
+  /** 고정 거래: 이미 반영된 합계와 이 달에 아직 도래하지 않은 예정 합계 */
+  fixed: { expense: number; income: number; upcoming_expense: number; upcoming_income: number };
 };
 
 export type Room = { id: number; name: string; description: string | null; capacity: number | null };
