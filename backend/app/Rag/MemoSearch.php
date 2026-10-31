@@ -5,7 +5,6 @@ namespace App\Rag;
 use App\Jarvis\LlmBreaker;
 use App\Jarvis\LlmQuotaExceeded;
 use App\Jarvis\LlmUnavailable;
-use App\Models\Memo;
 use App\Models\User;
 
 /**

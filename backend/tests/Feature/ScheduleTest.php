@@ -7,8 +7,11 @@ use App\Jarvis\LlmReply;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\User;
+use App\Schedule\ReservationBooker;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Database\Seeders\ScheduleSeeder;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
@@ -254,14 +257,14 @@ class ScheduleTest extends TestCase
         }
 
         // 앱의 겹침 검사를 건너뛰고 DB 제약에만 의존하는 경로를 만든다 (동시 요청이 검사를 동시에 통과한 상황).
-        $booker = new class extends \App\Schedule\ReservationBooker
+        $booker = new class extends ReservationBooker
         {
-            public function overlapping(int $roomId, \Carbon\CarbonInterface $start, \Carbon\CarbonInterface $end): \Illuminate\Database\Eloquent\Builder
+            public function overlapping(int $roomId, CarbonInterface $start, CarbonInterface $end): Builder
             {
                 return Reservation::query()->whereRaw('1 = 0');
             }
         };
-        $this->app->instance(\App\Schedule\ReservationBooker::class, $booker);
+        $this->app->instance(ReservationBooker::class, $booker);
 
         $this->book('2026-11-02T15:00:00+09:00', '2026-11-02T16:00:00+09:00')->assertCreated();
         $this->book('2026-11-02T15:30:00+09:00', '2026-11-02T16:30:00+09:00', User::factory()->create())->assertStatus(409);

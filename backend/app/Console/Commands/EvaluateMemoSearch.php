@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Memo;
 use App\Models\User;
 use App\Rag\Embedder;
 use App\Rag\MemoIndexer;

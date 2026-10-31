@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Jarvis\LlmClient;
 use App\Jarvis\LlmReply;
 use App\Jarvis\LlmUnavailable;
+use App\Jarvis\RuleBasedClient;
+use App\Models\ServiceTool;
 use App\Models\ToolCall;
 use App\Models\User;
 use Database\Seeders\SecondBrainToolsSeeder;
@@ -249,7 +251,7 @@ class JarvisTest extends TestCase
 
     public function test_call_log_lists_only_own_calls_newest_first_and_filters_by_status(): void
     {
-        $tool = \App\Models\ServiceTool::firstWhere('name', 'memo.search');
+        $tool = ServiceTool::firstWhere('name', 'memo.search');
         $make = fn (User $u, string $status) => ToolCall::create([
             'user_id' => $u->id, 'service_tool_id' => $tool->id, 'tool_name' => 'memo.search',
             'arguments' => ['q' => 'x'], 'status' => $status, 'result' => ['data' => ['비밀 본문']],
@@ -272,7 +274,7 @@ class JarvisTest extends TestCase
 
     public function test_rule_based_provider_works_without_api_key(): void
     {
-        $this->app->bind(LlmClient::class, fn () => new \App\Jarvis\RuleBasedClient);
+        $this->app->bind(LlmClient::class, fn () => new RuleBasedClient);
         Http::fake(['*' => Http::response(['data' => [['title' => null, 'body' => 'nginx 에러 해결']], 'total' => 1])]);
 
         $this->chat('nginx 관련 메모 찾아줘')

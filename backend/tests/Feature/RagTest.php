@@ -2,8 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Jarvis\LlmBreaker;
+use App\Jarvis\LlmClient;
 use App\Jarvis\LlmQuotaExceeded;
+use App\Jarvis\LlmReply;
 use App\Jarvis\LlmUnavailable;
 use App\Models\Memo;
 use App\Models\MemoChunk;
@@ -20,6 +21,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
@@ -126,7 +128,7 @@ class RagTest extends TestCase
         return app(MemoIndexer::class)->indexMany(collect($memos));
     }
 
-    private function search(string $q, string $extra = ''): \Illuminate\Testing\TestResponse
+    private function search(string $q, string $extra = ''): TestResponse
     {
         return $this->as($this->user)->getJson('/api/memos/search?q='.urlencode($q).$extra);
     }
@@ -767,15 +769,15 @@ class RagTest extends TestCase
     public function test_the_system_prompt_tells_the_model_not_to_shorten_memo_questions_and_to_cite_memos(): void
     {
         $seen = new \ArrayObject;
-        $this->app->instance(\App\Jarvis\LlmClient::class, new class($seen) implements \App\Jarvis\LlmClient
+        $this->app->instance(LlmClient::class, new class($seen) implements LlmClient
         {
             public function __construct(private \ArrayObject $seen) {}
 
-            public function generate(string $system, array $conversation, array $tools): \App\Jarvis\LlmReply
+            public function generate(string $system, array $conversation, array $tools): LlmReply
             {
                 $this->seen['system'] = $system;
 
-                return new \App\Jarvis\LlmReply('ok');
+                return new LlmReply('ok');
             }
         });
 

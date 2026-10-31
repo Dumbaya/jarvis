@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Service;
+use App\Models\ServiceTool;
 use App\Models\ToolCall;
 use App\Models\User;
 use Carbon\Carbon;
@@ -10,6 +11,7 @@ use Database\Seeders\LedgerSeeder;
 use Database\Seeders\ScheduleSeeder;
 use Database\Seeders\SecondBrainToolsSeeder;
 use Database\Seeders\TasksSeeder;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
@@ -66,7 +68,7 @@ class BriefingTest extends TestCase
 
         // 같은 URL을 Http::fake로 두 번 등록하면 먼저 등록한 것이 우선하므로, 덮어쓸 응답은 여기서 한 번에 합친다.
         // 덮어쓰기 값은 본문(배열)이거나, 상태 코드가 필요하면 Http::response(...) 자체를 넘긴다.
-        $respond = fn ($v) => $v instanceof \GuzzleHttp\Promise\PromiseInterface ? $v : Http::response($v);
+        $respond = fn ($v) => $v instanceof PromiseInterface ? $v : Http::response($v);
         Http::fake(array_map($respond, array_merge($defaults, $overrides)));
     }
 
@@ -113,7 +115,7 @@ class BriefingTest extends TestCase
 
     public function test_calls_stuck_in_running_are_marked_interrupted_when_the_log_is_opened(): void
     {
-        $tool = \App\Models\ServiceTool::firstWhere('name', 'memo.search');
+        $tool = ServiceTool::firstWhere('name', 'memo.search');
         $make = fn (string $status, $age) => tap(ToolCall::create([
             'user_id' => $this->user->id, 'service_tool_id' => $tool->id, 'tool_name' => 'memo.search', 'arguments' => [], 'status' => $status,
         ]), fn ($c) => $c->forceFill(['created_at' => $age])->save());
@@ -217,7 +219,7 @@ class BriefingTest extends TestCase
     {
         $this->fakeServices();
         $this->briefing()->assertOk();
-        $tool = \App\Models\ServiceTool::firstWhere('name', 'memo.search');
+        $tool = ServiceTool::firstWhere('name', 'memo.search');
         ToolCall::create(['user_id' => $this->user->id, 'service_tool_id' => $tool->id, 'tool_name' => 'memo.search', 'arguments' => [], 'status' => 'success']);
 
         $log = fn (string $q = '') => $this->withToken($this->token)->getJson('/api/jarvis/calls'.$q);

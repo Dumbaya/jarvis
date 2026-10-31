@@ -2,13 +2,14 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Reservation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * 시간은 사용자 시간대(+오프셋)로 내보낸다. UTC("Z")로 주면 LLM이 시간대를 잘못 환산하기 쉽다.
  *
- * @mixin \App\Models\Reservation
+ * @mixin Reservation
  */
 class ReservationResource extends JsonResource
 {
