@@ -172,7 +172,7 @@ export default function Jarvis() {
                   : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100"
               }`}
             >
-              {m.content}
+              <InlineText text={m.content} />
 
               {m.pending && (
                 <div className="mt-3 rounded-xl border border-slate-300 bg-white p-3 text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200">
@@ -296,5 +296,29 @@ function LimitBadge({ limits }: { limits: ChatLimits }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * LLM 답변의 **굵게**와 `코드` 표시만 처리한다. 실측: 처리하지 않으면 별표가 그대로 보였다.
+ * HTML로 해석하지 않고 React 요소로만 만들기 때문에, 답변에 마크업이 섞여 있어도 실행되지 않는다.
+ */
+function InlineText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g);
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) return <strong key={i}>{part.slice(2, -2)}</strong>;
+        if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) {
+          return (
+            <code key={i} className="rounded bg-slate-200 px-1 py-0.5 text-xs dark:bg-slate-700">
+              {part.slice(1, -1)}
+            </code>
+          );
+        }
+        return part;
+      })}
+    </>
   );
 }
