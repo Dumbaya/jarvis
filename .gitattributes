@@ -1,2 +1,7 @@
-# 컨테이너 안에서 실행되는 셸 스크립트는 Windows에서도 LF여야 한다 (CRLF면 "not found"로 실행 실패)
+# 컨테이너 안에서 읽히는 파일은 Windows에서도 LF여야 한다.
+#  - 셸 스크립트: CRLF면 "not found"로 실행 실패
+#  - php-fpm 풀, php.ini, nginx 설정: CRLF면 값 끝에 \r이 붙어("ondemand\r") 설정을 거부하거나 오동작한다
 *.sh text eol=lf
+docker/** text eol=lf
+Dockerfile* text eol=lf
+*.yml text eol=lf
