@@ -43,6 +43,16 @@ class AuthTest extends TestCase
             ->assertUnprocessable();
     }
 
+    public function test_unauthenticated_api_calls_get_401_json_even_without_an_accept_header(): void
+    {
+        // 실측: Accept 헤더가 없으면 로그인 화면으로 리다이렉트하려다 "Route [login] not defined" 500이 났다.
+        // 프런트는 항상 헤더를 보내서 가려졌지만 curl, 모니터링 도구, 헬스체크는 헤더 없이 부른다.
+        foreach (['/api/auth/me', '/api/memos', '/api/usage', '/api/jarvis/limits'] as $url) {
+            $this->get($url)->assertStatus(401)->assertHeader('Content-Type', 'application/json');
+        }
+        $this->post('/api/memos', ['body' => 'x'])->assertStatus(401);
+    }
+
     public function test_token_grants_access_and_logout_revokes_it(): void
     {
         $token = $this->postJson('/api/auth/register', $this->payload)->json('token');
