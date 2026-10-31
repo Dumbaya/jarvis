@@ -66,6 +66,11 @@ return [
         //   0.65 → 정답 recall@3 79%, 오탐 0개
         // 관련 메모를 놓치는 것과 무관한 메모가 섞이는 것 사이의 절충이다. 모델이나 데이터가 바뀌면 다시 잰다.
         'min_similarity' => (float) env('EMBEDDING_MIN_SIMILARITY', 0.6),
+        // 1위 결과보다 이만큼 넘게 덜 비슷한 결과는 버린다(절대 임계값에 더해 적용). 비우면 쓰지 않는다. memos:eval 측정:
+        //   없음 → recall@3 88%, 정답이 아닌 결과 질문당 0.76개
+        //   0.10 → recall@3 88%, 정답이 아닌 결과 질문당 0.24개   ← 기본값(재현율 손실 없이 군더더기 68% 감소)
+        //   0.05 → recall@3 85%, 정답이 아닌 결과 질문당 0.06개   (재현율이 떨어져 너무 빡빡하다)
+        'relative_margin' => env('EMBEDDING_RELATIVE_MARGIN', 0.10),
         'top_chunks' => 24,       // 질문당 가져오는 가장 가까운 조각 수(메모로 묶기 전)
         'chunk_size' => 800,      // 조각당 글자 수
         'chunk_overlap' => 100,

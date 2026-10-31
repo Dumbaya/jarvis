@@ -546,12 +546,51 @@ class RagTest extends TestCase
     {
         $m = $this->seedCorpus();
 
-        config(['jarvis.embedding.min_similarity' => 0.0]);   // 임계값이 없으면 무관한 메모까지 "가장 덜 안 비슷한" 순으로 나온다
+        // 절대 임계값만 따로 본다(상대 기준은 별도 테스트가 있고, 켜 두면 1위와 크게 차이 나는 무관한 메모를 먼저 걸러 낸다).
+        config(['jarvis.embedding.min_similarity' => 0.0, 'jarvis.embedding.relative_margin' => null]);   // 임계값이 없으면 무관한 메모까지 "가장 덜 안 비슷한" 순으로 나온다
         $loose = $this->search('배포')->json('data.*.id');
         $this->assertContains($m['cook']->id, $loose);
 
         config(['jarvis.embedding.min_similarity' => 0.6]);
         $this->assertNotContains($m['cook']->id, $this->search('배포')->json('data.*.id'));
+    }
+
+    public function test_relative_margin_drops_weak_results_that_trail_a_strong_one(): void
+    {
+        $this->enable();
+        // 질문 벡터와의 코사인을 손으로 정한다: 강한 결과 1.0, 중간 0.8, 약한 0.5
+        $strong = $this->memo('강한 결과');
+        $middle = $this->memo('중간 결과');
+        $weak = $this->memo('약한 결과');
+        $store = app(VectorStore::class);
+        $axis = fn (float $x) => array_merge([$x, sqrt(1 - $x * $x)], array_fill(0, 766, 0.0));
+        foreach ([[$strong, 1.0], [$middle, 0.8], [$weak, 0.5]] as [$memo, $x]) {
+            $store->replace($memo, 'fake-embed', [['content' => $memo->body, 'vector' => $axis($x)]]);
+        }
+        $this->fake = new class extends FakeEmbedder
+        {
+            public function embed(array $texts, string $task): array
+            {
+                return array_map(fn () => array_merge([1.0, 0.0], array_fill(0, 766, 0.0)), $texts);
+            }
+        };
+        $this->app->instance(Embedder::class, $this->fake);
+        $ids = fn () => $this->search('아무 질문')->json('data.*.id');
+
+        config(['jarvis.embedding.min_similarity' => 0.4, 'jarvis.embedding.relative_margin' => null]);
+        $this->assertSame([$strong->id, $middle->id, $weak->id], $ids());     // 기준이 없으면 임계값을 넘은 건 전부
+
+        config(['jarvis.embedding.relative_margin' => 0.25]);
+        $this->assertSame([$strong->id, $middle->id], $ids());                  // 1.0 - 0.25 = 0.75 → 0.8은 남고 0.5는 버림
+
+        config(['jarvis.embedding.relative_margin' => 0.10]);
+        $this->assertSame([$strong->id], $ids());                               // 1.0 - 0.10 = 0.90 → 0.8도 버림
+
+        // 절대 임계값은 그대로 하한이다. 1위가 약해도(0.5) 임계값(0.6) 아래면 아무것도 남지 않는다.
+        config(['jarvis.embedding.min_similarity' => 0.9, 'jarvis.embedding.relative_margin' => 0.5]);
+        $this->assertSame([$strong->id], $ids());
+        config(['jarvis.embedding.min_similarity' => 1.1]);
+        $this->assertSame([], $ids());
     }
 
     public function test_search_never_returns_another_users_memos_even_when_they_match_better(): void

@@ -105,12 +105,19 @@ class MemoSearch
         }
 
         $min = (float) config('jarvis.embedding.min_similarity');
+        $margin = config('jarvis.embedding.relative_margin');
         $best = [];
         $excerpts = [];
+        $cut = $min;
         foreach ($this->store->nearest($user->id, $this->embedder->model(), $vector, (int) config('jarvis.embedding.top_chunks')) as $hit) {
             // 임계값보다 덜 비슷한 조각은 버린다. 그러지 않으면 관련 없는 질문에도 "가장 덜 안 비슷한" 메모가 항상 나온다.
-            if ($hit['similarity'] < $min || isset($best[$hit['memo_id']])) {
+            if ($hit['similarity'] < $cut || isset($best[$hit['memo_id']])) {
                 continue;
+            }
+            // 상대 기준: 유사도 내림차순이라 처음 통과한 조각이 1위다. 그보다 margin 넘게 낮은 결과는 버려서,
+            // 정답 뒤에 "겨우 임계값을 넘긴 관련 약한 메모"가 따라붙는 것을 줄인다(memos:eval 측정치는 config 참고).
+            if ($best === [] && is_numeric($margin)) {
+                $cut = max($min, $hit['similarity'] - (float) $margin);
             }
             $best[$hit['memo_id']] = $hit['similarity'];   // 유사도 내림차순이라 처음 나온 조각이 그 메모의 최고 점수다
             $excerpts[$hit['memo_id']] = $hit['content'];

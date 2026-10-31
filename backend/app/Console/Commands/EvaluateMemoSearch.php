@@ -175,6 +175,27 @@ class EvaluateMemoSearch extends Command
         }
         $this->table(['임계값', 'recall@3', '오탐'], $sweep);
 
+        // 상대 기준: 절대 임계값을 넘은 결과 중에서도 1위 유사도보다 margin 넘게 낮은 것은 버린다.
+        // 정답 뒤에 "겨우 임계값을 넘긴 관련 약한 결과"가 따라붙는 군더더기를 줄이는 방법이라서, 정답을 잃지 않는지 함께 본다.
+        $relative = fn (float $margin) => function ($r) use ($threshold, $margin) {
+            $top = max($r['semantic_ranked'] ?: [0]);
+            $cut = max($threshold, $top - $margin);
+
+            return array_slice(array_keys(array_filter($r['semantic_ranked'], fn ($s) => $s >= $cut)), 0, 3);
+        };
+        $this->newLine();
+        $this->line("<options=bold>상대 기준</> (절대 임계값 {$threshold}에 더해, 1위 유사도보다 margin 넘게 낮은 결과는 버림)");
+        $table = [];
+        foreach ([null, 0.15, 0.12, 0.10, 0.07, 0.05] as $margin) {
+            $fn = $margin === null ? $semanticAt($threshold) : $relative($margin);
+            $m = $metrics($positive, $fn);
+            $returned = array_sum(array_map(fn ($r) => count($fn($r)), $positive)) / max(1, count($positive));
+            $extras = array_sum(array_map(fn ($r) => count(array_diff($fn($r), $r['expect'])), $positive)) / max(1, count($positive));
+            $fp = array_sum(array_map(fn ($r) => count($fn($r)), $negative)) / max(1, count($negative));
+            $table[] = [$margin === null ? '(없음)' : number_format($margin, 2), sprintf('%.0f%%', $m['recall'] * 100), sprintf('%.0f%%', $m['hit1'] * 100), sprintf('%.2f개', $returned), sprintf('%.2f개', $extras), sprintf('%.2f개', $fp)];
+        }
+        $this->table(['margin', 'recall@3', '1위 적중', '질문당 반환', '정답 아닌 결과', '무관 질문 오탐'], $table);
+
         $this->newLine();
         $this->line('<options=bold>질문별 결과</> (정답이 상위 3개 안에 있으면 O)');
         foreach ($rows as $r) {
