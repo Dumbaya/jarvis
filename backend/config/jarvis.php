@@ -54,6 +54,24 @@ return [
     // 모든 사용 모델의 단가가 입력되어 있어야 적용된다.
     'monthly_budget_usd' => env('JARVIS_MONTHLY_BUDGET_USD'),
 
+    // 메모 의미 검색(RAG)용 임베딩. 사용자가 직접 켠 경우에만 메모 내용이 임베딩 제공자로 전송된다.
+    'embedding' => [
+        'provider' => env('EMBEDDING_PROVIDER', 'gemini'), // gemini | ollama(로컬, 내용이 밖으로 나가지 않음)
+        'model' => env('EMBEDDING_MODEL', 'gemini-embedding-2'),
+        // DB 컬럼(vector(768))이 이 크기로 고정되어 있다. 바꾸려면 마이그레이션과 재색인이 필요하다.
+        'dimensions' => 768,
+        // 이보다 덜 비슷한 조각은 버린다. `php artisan memos:eval`(더미 메모 23개, 질문 29개, gemini-embedding-2)로 잰 값:
+        //   0.55 → 정답 recall@3 94%, 관련 없는 질문의 오탐 평균 1.2개
+        //   0.60 → 정답 recall@3 88%, 오탐 평균 0.1개   ← 기본값
+        //   0.65 → 정답 recall@3 79%, 오탐 0개
+        // 관련 메모를 놓치는 것과 무관한 메모가 섞이는 것 사이의 절충이다. 모델이나 데이터가 바뀌면 다시 잰다.
+        'min_similarity' => (float) env('EMBEDDING_MIN_SIMILARITY', 0.6),
+        'top_chunks' => 24,       // 질문당 가져오는 가장 가까운 조각 수(메모로 묶기 전)
+        'chunk_size' => 800,      // 조각당 글자 수
+        'chunk_overlap' => 100,
+        'max_chunks' => 25,       // 메모 하나당 최대 조각 수
+    ],
+
     'rate_limit' => [
         'per_minute' => 10,
         'per_day' => 100,

@@ -7,6 +7,7 @@ use App\Http\Controllers\JarvisController;
 use App\Http\Controllers\LedgerController;
 use App\Http\Controllers\LedgerRuleController;
 use App\Http\Controllers\MemoController;
+use App\Http\Controllers\MemoSearchController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\ServiceRegistryController;
 use App\Http\Controllers\TagController;
@@ -64,7 +65,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('rules/{id}', [LedgerRuleController::class, 'destroy']);
     });
 
-    // 세컨드 브레인
+    // 세컨드 브레인. search와 ai는 memos/{memo}보다 먼저 등록해야 id로 해석되지 않는다.
+    Route::get('memos/search', [MemoSearchController::class, 'search'])->middleware('throttle:60,1');
+    Route::get('memos/ai', [MemoSearchController::class, 'status']);
+    Route::put('memos/ai', [MemoSearchController::class, 'toggle']);
     Route::apiResource('memos', MemoController::class);
     Route::get('tags', [TagController::class, 'index']);
 });

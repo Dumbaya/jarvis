@@ -20,7 +20,7 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     /** 방금 만든 객체에는 DB 기본값이 로드되지 않으므로, 응답에서 is_admin이 비지 않게 모델에도 기본값을 둔다. */
-    protected $attributes = ['is_admin' => false];
+    protected $attributes = ['is_admin' => false, 'memo_ai_indexing' => false];
 
     public function memos(): HasMany
     {
@@ -71,6 +71,7 @@ class User extends Authenticatable
     {
         return [
             'is_admin' => 'boolean',
+            'memo_ai_indexing' => 'boolean',
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];

@@ -98,6 +98,21 @@ export type Memo = {
   body: string;
   created_at: string;
   tags: Tag[];
+  // 검색 결과에만 있다. body는 앞부분만 오므로(body_truncated) 검색 결과에서는 수정하지 않는다.
+  match?: "keyword" | "semantic" | "both";
+  similarity?: number | null;
+  excerpt?: string | null;
+  body_truncated?: boolean;
+};
+/** 의미 검색을 썼는지, 못 썼다면 이유. */
+export type SemanticInfo = { used: boolean; reason: "disabled" | "indexing" | "unavailable" | "quota" | null };
+export type MemoAiStatus = {
+  enabled: boolean;
+  model: string;
+  total: number;
+  indexed: number;
+  available: boolean;
+  retry_after: number | null;
 };
 export type Todo = {
   id: number;

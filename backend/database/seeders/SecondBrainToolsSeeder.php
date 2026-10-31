@@ -22,17 +22,18 @@ class SecondBrainToolsSeeder extends Seeder
         $tools = [
             [
                 'name' => 'memo.search',
-                'description' => '사용자의 메모를 키워드나 태그로 검색한다. 제목, 본문, 태그 이름에서 부분 일치로 찾고 최신순으로 돌려준다.',
+                'description' => '사용자의 메모에서 질문과 관련된 메모를 찾는다. 단어가 일치하는 메모(키워드)와, 사용자가 의미 검색을 켠 경우 표현이 달라도 뜻이 비슷한 메모(의미)를 함께 찾아 관련도 순으로 최대 5개를 돌려준다. 각 결과에는 제목, 본문 앞부분, 태그, 근거가 된 문단(excerpt)이 있다. 질문에 답할 때는 이 결과만 근거로 쓰고, 결과에 없는 내용은 모른다고 답한다. q에는 사용자가 한 말을 "서버"처럼 한두 단어로 줄이거나 키워드로 바꾸지 말고 문장 그대로 넣는다. 의미 검색은 문장 전체가 있어야 뜻이 비슷한 메모를 찾고, 단어 하나만 넣으면 놓친다.',
                 'http_method' => 'GET',
-                'path' => '/api/memos',
+                'path' => '/api/memos/search',
                 'access' => 'read',
                 'requires_confirmation' => false,
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
-                        'q' => ['type' => 'string', 'description' => '검색어'],
-                        'tag' => ['type' => 'string', 'description' => '이 태그가 붙은 메모만 찾을 때의 태그 이름'],
+                        'q' => ['type' => 'string', 'description' => '사용자의 질문이나 찾을 내용을 문장 그대로. 단어로 줄이지 않는다'],
+                        'tag' => ['type' => 'string', 'description' => '이 태그가 붙은 메모만 찾을 때의 태그 이름 (선택)'],
                     ],
+                    'required' => ['q'],
                 ],
             ],
             [

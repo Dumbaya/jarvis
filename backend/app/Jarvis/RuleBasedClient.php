@@ -30,7 +30,8 @@ class RuleBasedClient implements LlmClient
         $query = trim(str_replace(self::FILLER, ' ', preg_replace('/[?!.]/u', ' ', $text)));
         $query = trim(preg_replace('/\s+/u', ' ', $query));
 
-        return new LlmReply(null, [['name' => 'memo.search', 'args' => $query === '' ? [] : ['q' => $query]]]);
+        // 군더더기를 빼고 남은 게 없으면(예: "메모") 입력 전체를 검색어로 쓴다. memo.search는 q가 필수다.
+        return new LlmReply(null, [['name' => 'memo.search', 'args' => ['q' => $query === '' ? $text : $query]]]);
     }
 
     private function summarize(array $result): string
