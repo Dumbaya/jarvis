@@ -31,7 +31,7 @@ jobs:
           php-version: ${{ env.PHP_VERSION }}
           tools: composer:v2
           coverage: none
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.composer/cache
           key: composer-${{ hashFiles('backend/composer.lock') }}
@@ -54,7 +54,7 @@ jobs:
           extensions: mbstring, intl, pdo_sqlite, pdo_pgsql, bcmath, zip, pcntl
           tools: composer:v2
           coverage: none
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.composer/cache
           key: composer-${{ hashFiles('backend/composer.lock') }}
@@ -100,7 +100,7 @@ jobs:
           extensions: mbstring, intl, pdo_sqlite, pdo_pgsql, bcmath, zip, pcntl
           tools: composer:v2
           coverage: none
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.composer/cache
           key: composer-${{ hashFiles('backend/composer.lock') }}
