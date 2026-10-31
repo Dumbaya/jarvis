@@ -11,6 +11,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call(SecondBrainToolsSeeder::class);
+        $this->call([SecondBrainToolsSeeder::class, ScheduleSeeder::class, TasksSeeder::class, LedgerSeeder::class]);
     }
 }

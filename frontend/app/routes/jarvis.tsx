@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useRouteLoaderData } from "react-router";
+import { useLoaderData, useRouteLoaderData } from "react-router";
 
-import { api, ApiError, chatStorageKey, type User } from "~/lib/api";
+import { api, ApiError, chatStorageKey, humanizeSeconds, type ChatLimits, type User } from "~/lib/api";
 import type { Route } from "./+types/jarvis";
 
 export const meta: Route.MetaFunction = () => [{ title: "자비스 | Jarvis" }];
@@ -13,6 +13,7 @@ type ChatResponse = {
   tool_calls: { name: string; status: string }[];
   pending_action?: PendingAction;
   fallback?: boolean;
+  limits?: ChatLimits;
 };
 type Message = {
   role: "user" | "assistant";
@@ -40,8 +41,14 @@ function load(key: string): Message[] {
   }
 }
 
+// 남은 채팅 횟수. 조회만 하고 횟수를 소비하지 않는다.
+export function clientLoader() {
+  return api<ChatLimits>("/jarvis/limits");
+}
+
 export default function Jarvis() {
   const user = useRouteLoaderData("routes/app-layout") as User;
+  const [limits, setLimits] = useState<ChatLimits>(useLoaderData<typeof clientLoader>());
   const storageKey = chatStorageKey(user.id);
   const [messages, setMessages] = useState<Message[]>(() => load(storageKey));
   const [input, setInput] = useState("");
@@ -60,6 +67,17 @@ export default function Jarvis() {
       // 용량 초과나 시크릿 모드에서는 저장을 건너뛴다.
     }
   }, [messages, storageKey]);
+
+  // 분당 한도와 AI 무료 한도는 시간이 지나면 풀린다. 계속 조회하지 않고, 가장 먼저 풀릴 시각에 한 번만 다시 가져온다.
+  useEffect(() => {
+    const waits = [limits.minute.reset_in, limits.ai && !limits.ai.available ? (limits.ai.retry_after ?? 0) : 0].filter((n) => n > 0);
+    if (waits.length === 0) return;
+    const timer = setTimeout(
+      () => api<ChatLimits>("/jarvis/limits").then(setLimits).catch(() => {}),
+      (Math.min(...waits) + 1) * 1000,
+    );
+    return () => clearTimeout(timer);
+  }, [limits]);
 
   function reset() {
     if (messages.length && !confirm("대화를 모두 지울까요?")) return;
@@ -88,6 +106,7 @@ export default function Jarvis() {
       // 서버는 대화 내용을 저장하지 않으므로 최근 대화만 매번 보낸다. 확인 대기 카드 같은 UI 상태는 제외한다.
       const history = next.slice(-HISTORY_LIMIT).map(({ role, content }) => ({ role, content }));
       const res = await api<ChatResponse>("/jarvis/chat", { method: "POST", body: { messages: history } });
+      if (res.limits) setLimits(res.limits);
       add({
         role: "assistant",
         content: res.reply,
@@ -95,6 +114,8 @@ export default function Jarvis() {
         pendingState: res.pending_action ? "idle" : undefined,
       });
     } catch (err) {
+      // 한도를 넘은 경우에도 서버가 남은 횟수를 같이 보내 주므로 배지를 맞춰 둔다.
+      if (err instanceof ApiError && err.data.limits) setLimits(err.data.limits);
       add({ role: "assistant", content: err instanceof ApiError ? err.message : "문제가 생겼어요. 다시 시도해 주세요." });
     } finally {
       setBusy(false);
@@ -122,13 +143,16 @@ export default function Jarvis() {
             말로 메모를 찾고 저장하세요. 저장처럼 데이터를 바꾸는 작업은 확인 후에 실행돼요.
           </p>
         </div>
-        <button
-          onClick={reset}
-          disabled={busy || messages.length === 0}
-          className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          새 대화
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <button
+            onClick={reset}
+            disabled={busy || messages.length === 0}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            새 대화
+          </button>
+          <LimitBadge limits={limits} />
+        </div>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -221,6 +245,56 @@ export default function Jarvis() {
           보내기
         </button>
       </form>
+    </div>
+  );
+}
+
+function LimitBadge({ limits }: { limits: ChatLimits }) {
+  const { minute, day } = limits;
+  const exhausted = minute.remaining === 0 || day.remaining === 0;
+  const low = minute.remaining <= 2 || day.remaining <= 5;
+  const tone = exhausted
+    ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
+    : low
+      ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300";
+
+  // 위의 횟수는 우리 앱이 거는 제한이고, AI 제공자(무료 티어)에도 따로 하루 한도가 있다. 둘은 별개라서 따로 보여 준다.
+  const ai = limits.ai;
+
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <div
+        className={`rounded-lg px-3 py-1.5 text-xs ${tone}`}
+        title="채팅 한 번에 분당과 하루 횟수가 각각 1씩 줄어요. 분당 횟수는 첫 요청 후 1분이 지나면 다시 채워져요."
+      >
+        <span>
+          분당 <b>{minute.remaining}</b>/{minute.limit}
+        </span>
+        <span className="mx-2 opacity-40">|</span>
+        <span>
+          오늘 <b>{day.remaining}</b>/{day.limit}
+        </span>
+        <span className="ml-1">남음</span>
+        {minute.remaining === 0 && minute.reset_in > 0 && day.remaining > 0 && (
+          <span className="ml-2">· {humanizeSeconds(minute.reset_in)} 후 충전</span>
+        )}
+      </div>
+
+      {ai && !ai.available && (
+        <div
+          className="max-w-xs rounded-lg bg-amber-100 px-3 py-1.5 text-right text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+          title="AI 제공자의 무료 사용량을 모두 썼어요. 그동안은 키워드 검색으로만 답해요."
+        >
+          AI 무료 사용량을 모두 써서 <b>키워드 검색 모드</b>예요
+          {ai.retry_after ? ` · ${humanizeSeconds(ai.retry_after)} 뒤 복구` : ""}
+        </div>
+      )}
+      {ai?.mode === "rule" && (
+        <div className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          AI 미연결 · 간단 명령 모드
+        </div>
+      )}
     </div>
   );
 }

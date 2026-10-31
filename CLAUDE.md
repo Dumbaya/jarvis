@@ -63,7 +63,52 @@
   - 같은 앱 안의 도구는 `JARVIS_INTERNAL_URL`(Docker에서는 `http://nginx`)로 HTTP 호출한다. 분리된 서비스는 `services.base_url`을 지정하면 같은 경로를 탄다.
   - Gemini 모델명은 `GEMINI_MODEL`로 바꾼다(기본 `gemini-3.5-flash`). `gemini-2.5-flash`는 신규 사용자에게 종료(404)되어 교체했다. 모델은 자주 바뀌니 404가 나면 `GET https://generativelanguage.googleapis.com/v1beta/models`(헤더 `x-goog-api-key`)로 사용 가능한 모델을 조회한다. 실제 Gemini 호출 검증 완료(2026-10-31): 읽기 도구 자동 실행, 쓰기 도구 확인 대기, 일반 대화 모두 정상.
 - [x] 테스트 31개 (SQLite, Postgres 양쪽 통과). 테스트 안에서 토큰을 바꿔 여러 번 요청하면 인증 가드가 이전 사용자를 기억하므로 `$this->app['auth']->forgetGuards()`로 비운다.
-- [ ] 다음: 호출 로그 화면, 서브 2 일정/예약(도구 등록만으로 추가)
+- [x] 호출 로그: `GET /api/jarvis/calls` (내 기록만, 최신순, `status` 필터, 결과 본문은 제외), 화면 `/logs`
+- [x] 메모 수정 UI: `/memos` 카드의 "수정" (제목, 본문, 태그)
+- [x] Docker 권한 자동화: `docker/php/entrypoint.sh`가 시작할 때마다 `storage`, `bootstrap/cache` 소유권을 `www-data`로 맞춘다. `.gitattributes`로 `*.sh`는 LF 강제(CRLF면 컨테이너에서 실행 실패). 이제 수동 `chown`은 보통 필요 없다.
+- [x] 테스트 32개. Laravel 테스트에서 `withToken()`은 헤더를 테스트 끝까지 유지하므로, 토큰 없는 요청을 검증하려면 `$this->flushHeaders()`를 먼저 호출한다.
+- [x] 서브 2 일정/예약: 공용 방(`rooms`: 스터디룸 A/B, 회의실)을 사용자들이 예약(`reservations`). 코드는 `app/Schedule/`(ReservationBooker), `ReservationController`, 화면 `/schedule`.
+  - API: `GET /api/rooms`, `GET /api/availability?room_id&date`(다른 사람 예약은 시간대만, 신원 비공개), `GET /api/reservations`(내 예약, `scope=all`로 전체), `POST /api/reservations`, `POST /api/reservations/{id}/cancel`
+  - 이중 예약 방지 2중: 트랜잭션 + 방 행 `lockForUpdate` + 겹침 검사, 그리고 Postgres 배타 제약 `reservations_no_overlap`(btree_gist, tstzrange, status='confirmed'만). 제약 위반(23P01)은 409로 변환. 실제 서버에 서로 다른 사용자 8명이 동시에 같은 슬롯을 예약하면 2회 모두 1건 성공 + 7건 409, DB에 1행.
+  - 규칙: 15분~4시간, 90일 이내, 과거 불가, 사용자당 확정 예약 10개, 시작한 예약은 취소 불가. 끝=시작이면 겹치지 않음. 취소한 시간은 재예약 가능.
+  - 시간: DB는 UTC(timestamptz), API 응답은 `JARVIS_TIMEZONE`(기본 Asia/Seoul) 오프셋 포함 ISO. 오프셋 없는 입력은 그 시간대로 해석. 자비스 시스템 프롬프트에 현재 시각과 시간대를 넣는다.
+  - 자비스 도구 5개(`schedule.list_rooms|check_availability|my_reservations|reserve|cancel`)는 `ScheduleSeeder`가 레지스트리에 등록(멱등). 쓰기 도구(reserve, cancel)는 확인 필요. 메인 코드 변경은 범용 개선 2가지뿐: 도구 경로 `{자리표시자}` 채우기(`ToolExecutor::fillPath`), 프롬프트에 현재 시각.
+  - 방은 `ScheduleSeeder`가 만든다. 새 환경에서는 `php artisan db:seed` 필요.
+- [x] Gemini 연동 버그 수정: 인자 없는 도구 호출의 `args`가 `[]`로 되돌아가 400이 나던 문제(빈 args는 `{}`로 정규화), 인자 없는 도구는 `parameters` 생략. 429/503은 이제 로그(`Gemini 일시 오류`)를 남긴다. 무료 티어는 호출을 몰아서 하면 429/503이 자주 나며, 그때는 키워드 검색으로 대체된다(정상 동작).
+- [x] 테스트 50개(Postgres 전용 2개 포함 시 Postgres 49+, SQLite는 2개 skip). `Http::assertSent`는 하나라도 맞으면 통과하므로 특정 요청을 검사하려면 `Http::recorded()`를 쓴다. 회귀 테스트는 수정을 끄고 실패하는지 확인한다.
+- [x] 사용량과 한도: 채팅 요청 1건당 `llm_usages` 1행(토큰은 호출들을 합산, 비용은 저장하지 않고 조회 시 현재 단가로 계산). 코드는 `app/Jarvis/{UsageTracker,UsageReport,ChatLimiter}.php`, `UsageController`.
+  - `GET /api/usage` → `{me: {tokens_today, requests_month}, admin: null | {tokens_today, requests_month, estimated_cost_usd, unpriced_models, by_model[], budget{monthly_usd, used_percent, enforced}}}`. `admin`은 관리자에게만 내려가고 일반 사용자 응답에는 비용, 모델명, 예산이 전혀 없다(테스트로 보장). 화면은 대시보드.
+  - "오늘"과 "이번 달"은 `JARVIS_TIMEZONE`(Asia/Seoul) 기준. DB는 UTC.
+  - 관리자 지정은 가입 API로 불가. `docker compose exec app php artisan user:admin <email>` (해제는 `--revoke`). 관리자 화면 데이터는 전체 사용자 합계다.
+  - 채팅 횟수 제한은 라우트 미들웨어가 아니라 `ChatLimiter`가 `chat`에서만 센다(분당 10, 일 100). 호출 로그, 확인/취소, 사용량 조회는 횟수를 깎지 않는다. `GET /api/jarvis/limits`와 채팅 응답의 `limits`로 남은 횟수를 내려 화면 배지에 표시. 한도 초과는 429 + `Retry-After` + 대기 시간 문구, 거절된 요청은 한도를 소비하지 않는다.
+  - 예상 비용은 `.env`의 `GEMINI_PRICE_INPUT_PER_M`, `GEMINI_PRICE_OUTPUT_PER_M`(USD/100만 토큰)이 있어야 계산된다. 단가를 지어내지 않으므로 비어 있으면 "단가 미설정". 단가가 없는 모델이 있으면 합계는 `unpriced_models`로 경고.
+  - 월 예산 `JARVIS_MONTHLY_BUDGET_USD`: 설정하고 모든 사용 모델의 단가가 있으면 적용되며, 예상 비용이 한도에 도달하면 LLM을 부르지 않고 키워드 검색으로 대체(`status=budget`). 단가가 없으면 적용되지 않는다(화면에 안내). 무료 티어에서는 실제 청구가 0원이므로 비용은 "유료였다면" 예상치다.
+  - 채팅 한 번은 도구 선언 때문에 입력 토큰이 약 1,000개부터 시작한다(실측: 인사 한 마디 1,171토큰).
+  - 테스트에서 시간을 고정할 때는 `travelTo(Carbon::parse('...+09:00')->utc())`처럼 UTC로 변환한다. KST 인스턴스를 그대로 쓰면 벽시계 시각이 UTC인 것처럼 DB에 저장된다.
+- [x] 테스트 71개(SQLite 69 + Postgres 전용 2 skip, Postgres에서는 71 모두 통과).
+- [x] 서브 3 할 일/습관(`tasks`): 코드 `TodoController`, `HabitController`, `app/Tasks/HabitStats.php`(연속/주간 계산, 순수 함수), 화면 `/tasks`.
+  - 할 일 `/api/todos`(CRUD + `complete`, `reopen`, `scope=open|today|done`). 마감일은 시각이 아닌 날짜. "오늘까지"는 밀린 것 포함. 완료는 멱등(두 번 눌러도 시각 불변). 미완료 200개 상한.
+  - 습관 `/api/habits`(+ `check`, `uncheck`). 하루 1회(unique), 연속 달성일은 "오늘 아직 안 했어도 어제까지 이어졌으면 유지". 이번 주는 월~일. 오늘 포함 최근 7일만 소급 체크. 습관 30개 상한.
+  - 자비스 도구 5개: `tasks.list_todos|add_todo|complete_todo|list_habits|check_habit`(쓰기는 확인 필요). `TasksSeeder`.
+- [x] 가계부(`ledger`): 코드 `LedgerController`, `LedgerEntry`, 화면 `/ledger`. 금액은 원 단위 정수(최대 100억), 날짜는 "날짜" 그대로(시간대 변환 없음), 미래 날짜 불가, Postgres CHECK 제약(amount>0, type).
+  - API `/api/ledger/entries`(CRUD, 월/구분/카테고리 필터), `/api/ledger/summary?month=YYYY-MM`(수입/지출/잔액/카테고리별 합계), `/api/ledger/categories`.
+  - **프라이버시 설계**: 자비스 도구는 `ledger.summary`(집계만)와 `ledger.add_entry`(쓰기, 확인 필요) 둘뿐이다. 개별 거래(메모 포함)를 돌려주는 도구는 일부러 만들지 않았다(도구 결과는 LLM 제공자로 나가므로). 새 읽기 도구를 추가할 때 이 원칙을 깨지 않는다. 테스트로 보장.
+  - 월 계산 주의: `Carbon::createFromFormat('Y-m', ...)`은 오늘의 "일"을 채워서 31일에 11월을 요청하면 12월로 넘어간다. `parse("$month-01")`로 만든다(`monthRange`). 31일 고정 테스트가 있다.
+- [x] 테스트 109개(SQLite 106 + Postgres 전용 3 skip, Postgres 109 통과). 시간 의존 테스트는 변이 검사(고의로 버그를 넣어 실패하는지 확인)를 거쳤다. 응답 본문에 한글이 `\uXXXX`로 이스케이프되므로, "없다"는 단언은 `json_encode(..., JSON_UNESCAPED_UNICODE)`로 풀어서 해야 빈 검증이 되지 않는다.
+- [!] **Gemini 무료 티어 일일 한도**: `generate_content_free_tier_requests`, 프로젝트·모델당 **하루 20회**(`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, 2026-10-31 확인). 우리 앱의 한도(분당 10, 일 100)보다 훨씬 작고 **모든 사용자가 공유**한다. 채팅 1건은 LLM을 1~4번 부르므로 하루 5~20채팅이 한계. 초과하면 429 → 키워드 검색으로 대체(정상 동작). 429 사유는 로그(`Gemini 일시 오류 429: ...`)에 남는다. 한도 상세는 오류 본문의 `error.details`(QuotaFailure.quotaValue, RetryInfo.retryDelay). 요청한 `gemini-3.5-flash`는 실제로는 `gemini-3.6-flash`로 처리되고 한도도 그 모델 기준이다. 도구 선언은 `countTokens`로 한도를 쓰지 않고 검증할 수 있고, 도구 14개 선언만 약 1,584토큰이다(채팅 1회 입력은 시스템 프롬프트 포함 약 2,000토큰부터).
+- [x] **LLM 체인과 한도 대응**(2026-10-31): `app/Jarvis/{LlmChain,LlmBreaker,LlmQuotaExceeded,OpenAiCompatibleClient}.php`
+  - `JARVIS_LLM_CHAIN="제공자/모델,제공자/모델,..."` 순서대로 시도. 앞 모델이 한도(429)를 넘기면 그 모델을 `retryDelay`(응답 본문) 동안 차단기에 올리고 다음 모델로 넘어간다. 한도는 모델마다 따로라서 체인이 길수록 쓸 수 있는 횟수가 늘어난다. 일시 장애(5xx, 연결 실패, 400)는 이번 요청만 다음으로 넘기고 차단하지 않는다. 키가 없는 제공자는 건너뛰고, 쓸 수 있는 항목이 없으면 `RuleBasedClient`.
+  - 현재 체인(`.env`): `gemini/gemini-3.5-flash, gemini/gemini-3.5-flash-lite, gemini/gemini-3.1-flash-lite`. **실제 일일 한도 소진 → 차단 → flash-lite 전환까지 라이브로 확인**(2026-10-31).
+  - 제공자: `gemini`, `groq`(GROQ_API_KEY), `openrouter`(OPENROUTER_API_KEY), `ollama`(키 없음, `OLLAMA_BASE_URL`). groq/openrouter/ollama는 `OpenAiCompatibleClient`(OpenAI 호환 `/chat/completions`)를 쓴다. **이 클라이언트는 단위 테스트(`Http::fake`)만 거쳤고 실제 Groq/OpenRouter/Ollama 호출은 키가 없어 검증하지 못했다.** Groq 모델명은 추측하지 않았으니 `GET https://api.groq.com/openai/v1/models`로 확인해서 체인에 적는다. 이 API들은 도구 이름에 점(.)을 허용하지 않아서 `memo.search`를 `memo__search`로 바꿔 보내고 되돌린다.
+  - 한도 소진 시 전부 막혀 있으면 HTTP 호출 없이 곧바로 키워드 검색으로 대체(`status=quota`), 채팅 응답과 `GET /api/jarvis/limits`의 `ai: {mode, available, retry_after}`로 화면에 "AI 무료 사용량 소진, N시간 뒤 복구" 표시. 모델 이름은 일반 사용자에게 내리지 않고 관리자 대시보드(`admin.llm`)에서만 보인다.
+  - 사용량 기록은 한 채팅에서 모델이 바뀌어도 행 1개(요청 1건)로 세고, 토큰을 가장 많이 쓴 모델로 기록한다.
+  - 모델이 여러 개면 단가는 `JARVIS_PRICING_JSON`('{"모델":{"input":0.3,"output":2.5}}')으로 넣는다.
+- [x] **내부 호출 전용 PHP-FPM 풀**: 자비스 도구 호출과 브리핑은 PHP가 같은 서버 API를 HTTP로 다시 부른다. 같은 워커 풀(5개)을 쓰면 동시 요청 5~6건에서 **서로를 기다리며 전부 멈췄다**(브리핑 6건 동시 → 전부 60초 타임아웃, 실측). 그래서 안쪽 호출은 별도 풀(`docker/php/internal-pool.conf`, 포트 9001)과 nginx 내부 서버(`:8081`, `/api/*`만 받음, 호스트로 포트를 열지 않음)로 보낸다(`JARVIS_INTERNAL_URL=http://nginx:8081`). 12건 동시 브리핑이 전부 200, 도구 호출 52/52 성공. **운영에서도 8081을 바깥에 열면 안 된다.** 테스트는 `phpunit.xml`에서 `JARVIS_INTERNAL_URL=http://nginx`로 고정한다.
+- [x] **자비스 v2 브리핑**: 대시보드 "오늘/이번 주 브리핑"(`GET /api/briefing?period=today|week`, `app/Jarvis/Briefing.php`). 서브 DB를 직접 읽지 않고 레지스트리의 읽기 도구(`tasks.list_todos`, `tasks.list_habits`, `schedule.my_reservations`, `ledger.summary`)를 사용자 토큰으로 호출해 합친다. AI를 쓰지 않아 무료 한도를 쓰지 않는다. 서비스가 꺼져 있으면 그 섹션만 숨기고, 실패하거나 응답 모양이 다르면 그 섹션에만 오류를 보인다(나머지는 정상). 호출은 `tool_calls.source='briefing'`으로 기록되고 호출 로그 화면은 기본으로 자비스 호출만 보여 준다(`source=briefing|all`로 전환). 자비스 채팅에서는 모델이 필요한 읽기 도구를 한 번에 여러 개 호출해서 같은 일을 한다(실측: 도구 3개 + LLM 2회로 브리핑 생성).
+- [x] 오래된 `running` 호출 기록(5분 초과)은 호출 로그를 열 때 "중단됨"으로 정리한다.
+- [x] 테스트 145개(SQLite 142 + Postgres 전용 3 skip, Postgres 145). **변이 검사 주의**: 셸 `sed`로 코드를 고쳐 "테스트가 실패하는지" 확인할 때, 치환이 조용히 실패해도 테스트가 통과해서 "방어가 불필요한가?" 하고 오해할 수 있다(이번에 실제로 겪음). 변이 후 `grep`으로 적용 여부를 먼저 확인하거나 Edit 도구로 고친다. `Http::fake`를 한 테스트에서 같은 URL로 두 번 부르면 먼저 등록한 것이 우선하므로 응답은 한 번에 등록한다(순서가 필요하면 `Http::sequence()`).
+- 도구 선택 라우팅(요청에 맞는 서비스의 도구만 보내 토큰 절감)은 **의도적으로 하지 않았다**. 무료 한도의 병목은 토큰이 아니라 요청 횟수(하루 20회)이고, 도구 14개 선언이 약 1,584토큰이라 절감 효과가 작으며, 키워드로 서비스를 고르면 한국어에서 오분류가 잦다. 도구가 훨씬 늘어 입력 토큰이 실제 문제가 되면 그때 재검토한다.
+- [ ] 다음: 의미 검색/RAG → 배포와 CI, 문서화(배포 시 확인: 8081 비공개, 풀 크기와 메모리, 한도 소진 시나리오) → 자비스 v2(서비스 조합) → 의미 검색/RAG → 배포와 CI, 문서화
 
 ## 프런트 실행
 - `cd frontend && npm run dev` → http://localhost:5173 (백엔드 Docker가 떠 있어야 한다). 개발 중 `/api`는 Vite 프록시가 `localhost:8080`으로 넘긴다.

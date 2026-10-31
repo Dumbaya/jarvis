@@ -42,7 +42,7 @@ class ToolExecutor
         return $clean;
     }
 
-    public function record(User $user, ServiceTool $tool, array $args, string $status): ToolCall
+    public function record(User $user, ServiceTool $tool, array $args, string $status, string $source = 'jarvis'): ToolCall
     {
         return ToolCall::create([
             'user_id' => $user->id,
@@ -50,6 +50,7 @@ class ToolExecutor
             'tool_name' => $tool->name,
             'arguments' => $args,
             'status' => $status,
+            'source' => $source,
         ]);
     }
 
@@ -92,10 +93,32 @@ class ToolExecutor
         return is_array($data) ? $data : ['value' => $data];
     }
 
+    /**
+     * 경로의 {이름} 자리를 같은 이름의 인자로 채우고, 쓴 인자는 본문/쿼리에서 뺀다.
+     * 예: /api/reservations/{reservation_id}/cancel
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function fillPath(string $path, array $args): array
+    {
+        $path = preg_replace_callback('/\{(\w+)\}/', function ($m) use (&$args) {
+            if (! array_key_exists($m[1], $args)) {
+                throw new ToolCallFailed("경로 인자 '{$m[1]}'가 없습니다.");
+            }
+            $value = rawurlencode((string) $args[$m[1]]);
+            unset($args[$m[1]]);
+
+            return $value;
+        }, $path);
+
+        return [$path, $args];
+    }
+
     private function send(ServiceTool $tool, array $args, string $token): mixed
     {
+        [$path, $args] = $this->fillPath($tool->path, $args);
         $base = rtrim($tool->service->base_url ?: config('jarvis.internal_url'), '/');
-        $url = $base.'/'.ltrim($tool->path, '/');
+        $url = $base.'/'.ltrim($path, '/');
 
         $request = Http::withToken($token)->acceptJson()->timeout(15);
 

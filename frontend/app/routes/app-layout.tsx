@@ -2,7 +2,17 @@ import { Form, NavLink, Outlet, useLoaderData } from "react-router";
 
 import { requireUser } from "~/lib/api";
 
-const navClass = ({ isActive }: { isActive: boolean }) =>
+const NAV = [
+  { to: "/", label: "대시보드" },
+  { to: "/jarvis", label: "자비스" },
+  { to: "/memos", label: "세컨드 브레인" },
+  { to: "/schedule", label: "일정/예약" },
+  { to: "/tasks", label: "할 일/습관" },
+  { to: "/ledger", label: "가계부" },
+  { to: "/logs", label: "호출 로그" },
+];
+
+const navClass =({ isActive }: { isActive: boolean }) =>
   isActive
     ? "font-medium text-indigo-600 dark:text-indigo-400"
     : "text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-white";
@@ -17,24 +27,20 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-          <div className="flex items-center gap-6">
+        <div className="mx-auto flex min-h-14 max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
                 J
               </div>
               <span className="font-semibold text-slate-900 dark:text-white">Jarvis</span>
             </div>
-            <nav className="flex items-center gap-4 text-sm">
-              <NavLink to="/" end className={navClass}>
-                대시보드
-              </NavLink>
-              <NavLink to="/jarvis" className={navClass}>
-                자비스
-              </NavLink>
-              <NavLink to="/memos" className={navClass}>
-                세컨드 브레인
-              </NavLink>
+            <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              {NAV.map((item) => (
+                <NavLink key={item.to} to={item.to} end={item.to === "/"} className={navClass}>
+                  {item.label}
+                </NavLink>
+              ))}
             </nav>
           </div>
           <div className="flex items-center gap-4">

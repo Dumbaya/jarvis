@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Form, Link, useActionData, useLoaderData, useNavigation } from "react-router";
 
 import { api, ApiError, type Memo, type Paginated, type Tag } from "~/lib/api";
@@ -36,10 +36,14 @@ export async function clientAction({ request }: Route.ClientActionArgs) {
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
-    await api("/memos", {
-      method: "POST",
-      body: { title: form.get("title") || null, body: form.get("body"), tags },
-    });
+    const body = { title: form.get("title") || null, body: form.get("body"), tags };
+
+    if (intent === "update") {
+      await api(`/memos/${form.get("id")}`, { method: "PUT", body });
+      return { updated: true };
+    }
+
+    await api("/memos", { method: "POST", body });
     return { created: true };
   } catch (e) {
     if (e instanceof ApiError) return { error: e.message, errors: e.errors };
@@ -56,10 +60,14 @@ export default function Memos() {
   const navigation = useNavigation();
   const creating = navigation.state === "submitting" && navigation.formData?.get("intent") === "create";
   const formRef = useRef<HTMLFormElement>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const saving = navigation.state === "submitting" && navigation.formData?.get("intent") === "update";
 
   // 저장에 성공했을 때만 작성 폼을 비운다. 실패하면 쓰던 내용을 그대로 둔다.
   useEffect(() => {
     if (result && "created" in result) formRef.current?.reset();
+    // 수정이 성공하면 수정 모드를 닫고, 실패하면 열어 둔 채 오류를 보여 준다.
+    if (result && "updated" in result) setEditingId(null);
   }, [result]);
 
   const error = result && "error" in result ? result : null;
@@ -77,7 +85,7 @@ export default function Memos() {
         className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
       >
         <input type="hidden" name="intent" value="create" />
-        {error && (
+        {error && editingId === null && (
           <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
             {error.errors?.body?.[0] ?? error.errors?.tags?.[0] ?? error.error}
           </p>
@@ -125,24 +133,64 @@ export default function Memos() {
           <ul className="space-y-3">
             {memos.data.map((m) => (
               <li key={m.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    {m.title && <h3 className="font-semibold text-slate-900 dark:text-white">{m.title}</h3>}
-                    <p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{m.body}</p>
-                  </div>
-                  <Form
-                    method="post"
-                    onSubmit={(e) => {
-                      if (!confirm("이 메모를 삭제할까요?")) e.preventDefault();
-                    }}
-                  >
-                    <input type="hidden" name="intent" value="delete" />
+                {editingId === m.id ? (
+                  <Form method="post" className="space-y-3">
+                    <input type="hidden" name="intent" value="update" />
                     <input type="hidden" name="id" value={m.id} />
-                    <button type="submit" className="text-xs text-slate-400 transition hover:text-red-600">
-                      삭제
-                    </button>
+                    {error && (
+                      <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+                        {error.errors?.body?.[0] ?? error.errors?.tags?.[0] ?? error.error}
+                      </p>
+                    )}
+                    <input name="title" defaultValue={m.title ?? ""} placeholder="제목 (선택)" maxLength={200} className={inputClass} />
+                    <textarea name="body" defaultValue={m.body} required rows={4} maxLength={20000} className={inputClass} />
+                    <input name="tags" defaultValue={m.tags.map((t) => t.name).join(", ")} placeholder="태그 (쉼표로 구분)" className={inputClass} />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-500 disabled:opacity-60"
+                      >
+                        {saving ? "저장 중..." : "저장"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="rounded-lg border border-slate-300 px-4 py-1.5 text-xs text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        취소
+                      </button>
+                    </div>
                   </Form>
-                </div>
+                ) : (
+                  <>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        {m.title && <h3 className="font-semibold text-slate-900 dark:text-white">{m.title}</h3>}
+                        <p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{m.body}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(m.id)}
+                          className="text-xs text-slate-400 transition hover:text-indigo-600"
+                        >
+                          수정
+                        </button>
+                        <Form
+                          method="post"
+                          onSubmit={(e) => {
+                            if (!confirm("이 메모를 삭제할까요?")) e.preventDefault();
+                          }}
+                        >
+                          <input type="hidden" name="intent" value="delete" />
+                          <input type="hidden" name="id" value={m.id} />
+                          <button type="submit" className="text-xs text-slate-400 transition hover:text-red-600">
+                            삭제
+                          </button>
+                        </Form>
+                      </div>
+                    </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
                   {m.tags.map((t) => (
                     <Link key={t.id} to={`/memos?tag=${encodeURIComponent(t.name)}`} className="text-indigo-600 hover:underline dark:text-indigo-400">
@@ -151,6 +199,8 @@ export default function Memos() {
                   ))}
                   <span>{new Date(m.created_at).toLocaleString("ko-KR")}</span>
                 </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>

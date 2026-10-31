@@ -2,7 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Jarvis\ChatLimiter;
+use App\Jarvis\LlmChain;
+use App\Jarvis\LlmClient;
 use App\Jarvis\Orchestrator;
+use App\Jarvis\RuleBasedClient;
 use App\Jarvis\ToolExecutor;
 use App\Models\ToolCall;
 use Illuminate\Http\JsonResponse;
@@ -14,7 +18,31 @@ class JarvisController extends Controller
     public function __construct(
         private readonly Orchestrator $orchestrator,
         private readonly ToolExecutor $executor,
+        private readonly ChatLimiter $limiter,
     ) {}
+
+    /** 남은 채팅 횟수(분당, 일일)와 AI 사용 가능 여부. 조회만 하고 횟수를 소비하지 않는다. */
+    public function limits(Request $request): JsonResponse
+    {
+        return response()->json($this->limitsFor($request->user()));
+    }
+
+    /**
+     * 채팅 횟수 제한(우리 앱의 한도)과 AI 제공자 쪽 한도 상태를 함께 내려 준다.
+     * 둘은 다르다. 내 횟수가 남아 있어도 무료 AI 한도가 소진되면 키워드 검색으로 동작한다.
+     * 모델 이름 같은 운영 정보는 내려 주지 않는다(관리자 대시보드에서만 보인다).
+     */
+    private function limitsFor($user): array
+    {
+        $llm = app(LlmClient::class);
+        $status = $llm instanceof LlmChain ? $llm->status() : null;
+
+        return $this->limiter->status($user) + ['ai' => [
+            'mode' => $llm instanceof RuleBasedClient ? 'rule' : 'llm',
+            'available' => $status['available'] ?? true,
+            'retry_after' => $status['retry_after'] ?? null,
+        ]];
+    }
 
     public function chat(Request $request): JsonResponse
     {
@@ -29,7 +57,56 @@ class JarvisController extends Controller
             throw ValidationException::withMessages(['messages' => ['마지막 메시지는 사용자 메시지여야 합니다.']]);
         }
 
-        return response()->json($this->orchestrator->chat($request->user(), $request->bearerToken(), $messages));
+        $user = $request->user();
+
+        if (! $this->limiter->attempt($user)) {
+            $wait = $this->limiter->retryAfter($user);
+
+            return response()->json([
+                'message' => '요청 한도를 넘었어요. '.$this->humanize($wait).' 뒤에 다시 시도해 주세요.',
+                'retry_after' => $wait,
+                'limits' => $this->limitsFor($user),
+            ], 429)->header('Retry-After', (string) $wait);
+        }
+
+        $result = $this->orchestrator->chat($user, $request->bearerToken(), $messages);
+        $result['limits'] = $this->limitsFor($user);
+
+        return response()->json($result);
+    }
+
+    private function humanize(int $seconds): string
+    {
+        return match (true) {
+            $seconds < 120 => max(1, $seconds).'초',
+            $seconds < 7200 => (int) ceil($seconds / 60).'분',
+            default => (int) ceil($seconds / 3600).'시간',
+        };
+    }
+
+    /** 내 호출 기록(감사 로그). 결과 본문은 크고 민감할 수 있어 목록에는 넣지 않는다. */
+    public function calls(Request $request): JsonResponse
+    {
+        $request->validate([
+            'status' => ['nullable', 'in:pending,running,success,error,rejected,cancelled'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+            // 기본은 자비스 대화에서 일어난 호출만. 대시보드 브리핑이 남긴 조회 기록은 source=all로 함께 본다.
+            'source' => ['nullable', 'in:jarvis,briefing,all'],
+        ]);
+        $source = $request->query('source', 'jarvis');
+
+        // 요청이 도중에 끊기면(타임아웃, 서버 재시작) 기록이 running으로 영영 남는다. 오래된 것은 중단된 것으로 정리한다.
+        $request->user()->toolCalls()
+            ->where('status', 'running')->where('created_at', '<', now()->subMinutes(5))
+            ->update(['status' => 'error', 'error' => '응답을 받지 못하고 중단됐어요.']);
+
+        $calls = $request->user()->toolCalls()
+            ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
+            ->when($source !== 'all', fn ($q) => $q->where('source', $source))
+            ->latest('id')
+            ->paginate($request->integer('per_page', 20), ['id', 'tool_name', 'arguments', 'status', 'source', 'error', 'duration_ms', 'created_at']);
+
+        return response()->json($calls);
     }
 
     /** 사용자가 확인한 쓰기 작업을 실행한다. */

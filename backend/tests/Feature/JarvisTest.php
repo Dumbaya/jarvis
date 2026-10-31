@@ -247,6 +247,29 @@ class JarvisTest extends TestCase
         $this->chat()->assertStatus(429);
     }
 
+    public function test_call_log_lists_only_own_calls_newest_first_and_filters_by_status(): void
+    {
+        $tool = \App\Models\ServiceTool::firstWhere('name', 'memo.search');
+        $make = fn (User $u, string $status) => ToolCall::create([
+            'user_id' => $u->id, 'service_tool_id' => $tool->id, 'tool_name' => 'memo.search',
+            'arguments' => ['q' => 'x'], 'status' => $status, 'result' => ['data' => ['비밀 본문']],
+        ]);
+        $first = $make($this->user, 'success');
+        $second = $make($this->user, 'error');
+        $make(User::factory()->create(), 'success');
+
+        $res = $this->withToken($this->token)->getJson('/api/jarvis/calls')->assertOk();
+        $this->assertSame([$second->id, $first->id], $res->json('data.*.id'));
+        $res->assertJsonMissingPath('data.0.result')->assertJsonMissingPath('data.0.user_id');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($this->token)->getJson('/api/jarvis/calls?status=error')->assertJsonCount(1, 'data');
+        $this->withToken($this->token)->getJson('/api/jarvis/calls?status=hacked')->assertUnprocessable();
+        $this->app['auth']->forgetGuards();
+        $this->flushHeaders(); // withToken()은 헤더를 테스트 끝까지 유지한다.
+        $this->getJson('/api/jarvis/calls')->assertUnauthorized();
+    }
+
     public function test_rule_based_provider_works_without_api_key(): void
     {
         $this->app->bind(LlmClient::class, fn () => new \App\Jarvis\RuleBasedClient);

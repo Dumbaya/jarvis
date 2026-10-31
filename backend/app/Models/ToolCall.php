@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['user_id', 'service_tool_id', 'tool_name', 'arguments', 'status', 'result', 'error', 'duration_ms'])]
+#[Fillable(['user_id', 'service_tool_id', 'tool_name', 'arguments', 'status', 'result', 'error', 'duration_ms', 'source'])]
 class ToolCall extends Model
 {
     protected function casts(): array

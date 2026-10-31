@@ -3,7 +3,78 @@ import { redirect } from "react-router";
 const BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 const TOKEN_KEY = "jarvis_token";
 
-export type User = { id: number; name: string; email: string };
+export type User = { id: number; name: string; email: string; is_admin: boolean };
+
+export type LimitWindow = { limit: number; remaining: number; reset_in: number };
+/** ai는 우리 앱의 채팅 횟수와 별개인, AI 제공자 쪽(무료 한도) 상태다. */
+export type AiStatus = { mode: "llm" | "rule"; available: boolean; retry_after: number | null };
+export type ChatLimits = { minute: LimitWindow; day: LimitWindow; ai?: AiStatus };
+
+/** 초를 "N초", "N분", "N시간"으로 읽기 좋게 바꾼다. */
+export function humanizeSeconds(seconds: number): string {
+  if (seconds < 120) return `${Math.max(1, seconds)}초`;
+  if (seconds < 7200) return `${Math.ceil(seconds / 60)}분`;
+  return `${Math.ceil(seconds / 3600)}시간`;
+}
+
+/** 서비스가 꺼져 있으면 null, 조회에 실패하면 { error }, 성공하면 데이터. */
+export type Section<T> = T | { error: string } | null;
+export const sectionError = <T>(s: Section<T>): s is { error: string } => s !== null && typeof s === "object" && "error" in s;
+
+export type BriefingTodo = { id: number; title: string; due_date: string | null };
+export type Briefing = {
+  period: "today" | "week";
+  date: string;
+  todos: Section<{
+    overdue_count: number;
+    overdue: BriefingTodo[];
+    due_count: number;
+    due: BriefingTodo[];
+    completed_this_week: number | null;
+  }>;
+  habits: Section<{
+    total: number;
+    checked_today: number;
+    unchecked: { id: number; name: string; streak: number }[];
+    best_streak: { name: string; streak: number } | null;
+    week_checks: number;
+    week_possible: number;
+  }>;
+  reservations: Section<{
+    count: number;
+    items: { id: number; room: string; title: string | null; starts_at: string; ends_at: string }[];
+  }>;
+  ledger: Section<{
+    month: string;
+    income: number;
+    expense: number;
+    balance: number;
+    top_expense: { category: string; total: number; percent: number } | null;
+  }>;
+};
+
+export type ModelUsage = {
+  model: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number | null;
+};
+export type Usage = {
+  me: { tokens_today: number; requests_month: number };
+  /** 관리자에게만 내려온다. 일반 사용자는 항상 null. */
+  admin: {
+    tokens_today: number;
+    requests_month: number;
+    estimated_cost_usd: number | null;
+    unpriced_models: string[];
+    by_model: ModelUsage[];
+    budget: { monthly_usd: number | null; used_percent: number | null; enforced: boolean };
+    /** AI 연결 체인의 모델별 상태. 한도가 소진된 모델은 blocked_for(초) 동안 건너뛴다. */
+    llm: { available: boolean; retry_after: number | null; models: { id: string; blocked_for: number }[] } | null;
+  } | null;
+};
 export type ServiceTool = {
   id: number;
   name: string;
@@ -27,6 +98,56 @@ export type Memo = {
   body: string;
   created_at: string;
   tags: Tag[];
+};
+export type Todo = {
+  id: number;
+  title: string;
+  due_date: string | null;
+  completed: boolean;
+  completed_at: string | null;
+  overdue: boolean;
+};
+export type Habit = {
+  id: number;
+  name: string;
+  checked_today: boolean;
+  streak: number;
+  week_checks: number;
+  week_days: number;
+};
+
+export type LedgerEntry = {
+  id: number;
+  type: "income" | "expense";
+  amount: number;
+  category: string;
+  memo: string | null;
+  occurred_on: string;
+};
+export type CategoryTotal = { category: string; total: number; count: number; percent: number };
+export type LedgerSummary = {
+  month: string;
+  income: number;
+  expense: number;
+  balance: number;
+  entry_count: number;
+  expense_by_category: CategoryTotal[];
+  income_by_category: CategoryTotal[];
+};
+
+export type Room = { id: number; name: string; description: string | null; capacity: number | null };
+export type Reservation = {
+  id: number;
+  room: { id: number; name: string };
+  title: string | null;
+  starts_at: string;
+  ends_at: string;
+  status: "confirmed" | "cancelled";
+};
+export type Availability = {
+  room: { id: number; name: string };
+  date: string;
+  busy: { starts_at: string; ends_at: string; mine: boolean }[];
 };
 export type Paginated<T> = { data: T[]; current_page: number; last_page: number; total: number };
 
@@ -56,6 +177,8 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public errors: Record<string, string[]> = {},
+    /** 서버가 보낸 응답 본문 전체. 429의 남은 횟수(limits)처럼 오류에 딸린 정보를 쓸 때 필요하다. */
+    public data: Record<string, any> = {},
   ) {
     super(message);
   }
@@ -83,11 +206,12 @@ export async function api<T>(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // 서버가 기다릴 시간까지 알려 준 429는 그 문구를 그대로 쓰고, 일반 요청 제한은 기본 문구를 쓴다.
     const message =
-      res.status === 429
+      res.status === 429 && !data.retry_after
         ? "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
         : (data.message ?? "요청을 처리하지 못했습니다.");
-    throw new ApiError(res.status, message, data.errors);
+    throw new ApiError(res.status, message, data.errors, data);
   }
   return data as T;
 }
