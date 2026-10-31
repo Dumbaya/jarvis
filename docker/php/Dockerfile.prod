@@ -1,0 +1,38 @@
+# 운영용 이미지. 개발용(Dockerfile)과 달리 코드가 이미지 안에 들어 있고 개발 의존성과 테스트는 없다.
+# 빌드 컨텍스트는 저장소 루트다: docker build -f docker/php/Dockerfile.prod .
+
+# ── 1단계: 의존성 설치 ───────────────────────────────────────────────
+FROM composer:2 AS vendor
+WORKDIR /app
+COPY backend/composer.json backend/composer.lock ./
+# 확장 모듈(intl 등)은 실행 이미지에만 있으므로 여기서는 플랫폼 검사를 건너뛴다. 스크립트는 앱 코드가 없는 지금 실행할 수 없다.
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-interaction --ignore-platform-reqs
+
+COPY backend/ ./
+RUN composer dump-autoload --no-dev --optimize --classmap-authoritative --no-scripts
+
+# ── 2단계: 실행 이미지 ───────────────────────────────────────────────
+FROM php:8.4-fpm-alpine
+
+RUN apk add --no-cache libpq-dev icu-dev libzip-dev oniguruma-dev \
+    && docker-php-ext-install pdo_pgsql pgsql intl zip mbstring opcache pcntl bcmath
+
+# opcache는 파일 변경을 확인하지 않는다(validate_timestamps=0). 코드가 이미지에 고정되어 있으므로 바뀔 일이 없고 그만큼 빠르다.
+COPY docker/php/php-prod.ini /usr/local/etc/php/conf.d/zz-prod.ini
+# 풀 설정: 바깥 요청용 www와, 자비스 도구 호출 전용 internal(교착 방지)을 작은 서버에 맞게 줄였다.
+COPY docker/php/internal-pool.conf /usr/local/etc/php-fpm.d/internal.conf
+COPY docker/php/pools-prod.conf /usr/local/etc/php-fpm.d/zz-pools-prod.conf
+COPY docker/php/entrypoint.prod.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+WORKDIR /var/www/html
+COPY --from=vendor --chown=www-data:www-data /app ./
+RUN rm -rf tests phpunit.xml .env .env.example \
+    && mkdir -p storage/logs storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && php artisan package:discover --ansi
+
+ENV APP_ENV=production APP_DEBUG=false
+
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["php-fpm"]

@@ -1,0 +1,88 @@
+# 운영용 nginx 설정. ${SERVER_NAME}은 컨테이너 시작 시 환경변수로 채워진다(nginx 공식 이미지의 templates 기능).
+# 값이 정의된 환경변수만 치환되므로 $request_uri 같은 nginx 변수는 그대로 남는다.
+
+# 요청 제한. 앱(Laravel)에도 제한이 있지만, 여기서 막으면 PHP 워커를 쓰기 전에 거절할 수 있다.
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;   # 로그인, 가입: 무차별 대입 방어
+limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;    # 그 밖의 API
+limit_req_status 429;
+
+server_tokens off;
+
+# HTTP는 인증서 발급용 경로만 열고 나머지는 HTTPS로 보낸다.
+server {
+    listen 80;
+    server_name ${SERVER_NAME};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate     /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # 보안 헤더. 프런트(Vercel)와 도메인이 달라도 API 응답 자체를 보호하는 값들이다.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    client_max_body_size 2m;
+    gzip on;
+    gzip_types application/json;
+
+    # 상태 확인(배포 후 점검, 로드밸런서용). 로그에 남기지 않는다.
+    location = /up {
+        access_log off;
+        include /etc/nginx/snippets/fastcgi-api.conf;
+    }
+
+    # 로그인과 가입은 분당 10회(버스트 10)로 제한한다.
+    location ^~ /api/auth/ {
+        limit_req zone=auth burst=10 nodelay;
+        include /etc/nginx/snippets/fastcgi-api.conf;
+    }
+
+    location ^~ /api/ {
+        limit_req zone=api burst=40 nodelay;
+        include /etc/nginx/snippets/fastcgi-api.conf;
+    }
+
+    # 이 서버는 API만 제공한다. 화면은 Vercel이 서비스한다.
+    location / {
+        return 404;
+    }
+}
+
+# 내부 호출 전용 서버(자비스 도구 호출, 브리핑). 별도 PHP-FPM 풀(app:9001)로 보내서 바깥 요청이 몰려도 안쪽 호출이 굶지 않게 한다.
+# docker-compose에서 호스트로 포트를 열지 않으므로 컨테이너 네트워크 안에서만 닿는다. 이 포트를 바깥에 열면 안 된다.
+server {
+    listen 8081;
+    server_name _;
+
+    location / {
+        return 404;
+    }
+
+    location ^~ /api/ {
+        fastcgi_pass app:9001;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /var/www/html/public/index.php;
+        fastcgi_param SCRIPT_NAME /index.php;
+        fastcgi_read_timeout 60s;
+    }
+}

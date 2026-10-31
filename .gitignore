@@ -1,0 +1,13 @@
+# 비밀값과 운영 설정. .env.prod에는 DB 비밀번호, 앱 키, API 키가 들어간다.
+.env.prod
+.env.prod.*
+!.env.prod.example
+
+# 로컬 검증용 인증서, 인증서 발급용 폴더, DB 백업(사용자 데이터가 들어 있다)
+docker/certs*/
+docker/certbot-webroot/
+backups/
+
+# 편집기, OS
+.DS_Store
+Thumbs.db

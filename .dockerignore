@@ -1,0 +1,25 @@
+# 운영 이미지 빌드 컨텍스트(저장소 루트)에서 제외할 것. 비밀값과 불필요한 큰 폴더가 이미지에 들어가지 않게 한다.
+.git
+.github
+.claude
+docs
+frontend
+backups
+docker/certs*
+docker/certbot-webroot
+
+.env
+.env.*
+!.env.prod.example
+
+backend/vendor
+backend/node_modules
+backend/.env
+backend/.env.*
+backend/storage/logs/*
+backend/storage/framework/cache/data/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/bootstrap/cache/*.php
+backend/public/hot
+backend/database/*.sqlite
